@@ -1,0 +1,73 @@
+cd /home
+
+comando: "cd" " " argomentoPercorso
+
+
+
+banana
+/banana
+
+string/
+string/
+string/
+string/
+/string/string/
+
+
+string//string NON VALIDO
+
+
+
+cd /home
+comando: "cd" " " argomentoPercorso
+argomentoPercorso: argomentoPercorso / argomentoPercorso
+argomentoPercorso: stringa 
+
+
+
+
+
+comando: stringa
+comando: stringa comando
+linea: comando | linea
+linea: comando
+
+
+
+"stringConCoseDentro"
+
+
+Coppia è definito da: valore seguito da : seguito da valore
+Valore è definito da: una stringa OPPURE un numero OPPURE un array
+Array è definito da: [, seguito da elementi, seguito da ]
+Elementi è definito da: niente OPPURE un valore OPPURE valore seguito da , seguito da elementi
+
+
+Coppia: Valore : Valore            -> Valore ; Valore
+Valore: string
+Valore: numero
+Valore: Array
+Array: [ Elementi ]
+Elementi: 
+Elementi: Valore
+Elementi: Valore , Elementi
+
+
+
+Argomento: stringa
+Argomento: <stringa -> 
+Argomento: >stringa -> 
+Argomento: $stringa
+
+
+for(int i = 0; i < 99999999999999999999999999999; i++) {
+	//ALLOCA UN AREA DI MEMORIA NUOVA
+}
+
+
+
+
+
+
+
+
