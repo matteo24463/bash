@@ -58,62 +58,13 @@ int countToken(const char *intputStr, char *delimiter) {
     return count;
 }
 
-/*void parseEnvVar(char *arg) {
-    if(startsWith(arg, PREFIX_ENVVAR)){//Variabili d'ambiente
-        removeFirstChar(arg);
-        //printf("ARG2: %s\n", arg);
-        //char *newArg = getenv(arg);
-        //printf("ARG1: %s\n", newArg);
-        arg = getenv(arg);
-    }
-}
-
-int redirectStdOut(char *arg) {
-
-}
-
-int redirectStdIn(char *arg) {
-    if(startsWith(arg, PREFIX_REDIRINPUT)){
-        removeFirstChar(arg);
-        int newFileDescriptor = open(arg, O_RDWR | O_CREAT | O_TRUNC, 0644);
-        int saveStdInFileDescriptor =  dup(stdin);
-        dup2(stdin, newFileDescriptor);
-
-    }
-    else if(startsWith(arg, PREFIX_REDIROUTPUT)){
-        removeFirstChar(arg);
-
-    }
-    
-}*/
-
-void execCommand(char *const *arrayArg) {
-    pid_t forkRet = fork();
-
-    if(forkRet == 0) {
-        //Solo figlio
-        execvp(arrayArg[0], arrayArg);
-        exit(EXIT_SUCCESS);
-    }
-    else if(forkRet < 0){
-        perror("Fork fallita");
-        exit(EXIT_FAILURE);
-    }
-    //Solo padre
-    wait(NULL);
-}
-
-int parseCommand(const char *comando) {
+int parseCommand(const char *comando, char *executable[], char *stdinRedirect, char *stdoutRedirect) {
     char *str, *token, *saveptr;
     int tokenNum = countToken(comando, DELIMITER_COMMAND);
 
-    char **arrayArg = malloc((sizeof(char*) * tokenNum) + 1);
+    //char **arrayArg = malloc((sizeof(char*) * tokenNum) + 1);
+    char *arrayArg[tokenNum+1];
     int i;
-
-    int saveStdInFileDescriptor = -1;
-    int saveStdOutFileDescriptor = -1;
-    int newInFileDescriptor = 0;
-    int newOutFileDescriptor = 0;
 
     str = malloc(sizeof(char) * (strlen(comando) + 1));
     strcpy(str, comando);
@@ -122,70 +73,151 @@ int parseCommand(const char *comando) {
         if (token == NULL) {
             break;
         }
+        printf("TOKEN: %s\n", token);
 
         if(i > 0) {
-            //parseArg(token);
-
+             printf("TOKEN2");
             if(startsWith(token, PREFIX_ENVVAR)){//Variabili d'ambiente
                 removeFirstChar(token);
                 token = getenv(token);
-                arrayArg[i] = token;
+                strcpy(arrayArg[i], token);
+                //arrayArg[i] = token;
             } 
             else if(startsWith(token, PREFIX_REDIRINPUT)){
-                if(i == 1) {
-                    removeFirstChar(token);
-                    newInFileDescriptor = open(token, O_RDWR | O_CREAT | O_TRUNC, 0644);
-                    saveStdInFileDescriptor =  dup(stdin);
-                    dup2(stdin, newInFileDescriptor);
+                removeFirstChar(token);
+                if(stdinRedirect != NULL) {
+                    stdinRedirect = token;
                 }
                 else {
-                    printf("Redirezione stdin non come primo argomento(%d)", i);
                     return 0;
                 }
             }
             else if(startsWith(token, PREFIX_REDIROUTPUT)){
-                if(i == tokenNum -1) {
-                    removeFirstChar(token);
-                    newOutFileDescriptor = open(token, O_RDWR | O_CREAT | O_TRUNC, 0644);
-                    saveStdInFileDescriptor =  dup(stdout);
-                    dup2(stdout, newOutFileDescriptor);
+                removeFirstChar(token);
+                if(stdoutRedirect != NULL) {
+                    stdoutRedirect = token;
                 }
                 else {
-                    printf("Redirezione stdout non come ultimo argomento(%d)", i);
                     return 0;
                 }
             }
             else{
-                arrayArg[i] = token;
+                printf("TOKEN3: %s: ", token);
+                strcpy(arrayArg[i], token);
+                printf("TOKEN3: %s: ", arrayArg[i]);
+                //arrayArg[i] = token;
             }
         }
         else {
-            arrayArg[i] = token;
+            printf("COMMAND1: ");
+            strcpy(arrayArg[i], token);
+            //arrayArg[i] = token;
+            printf("COMMAND1: %s: ", arrayArg[i]);
         }
-
-
-        //isValid &= parseComandoValue(token);
     }
     arrayArg[tokenNum] = NULL;
 
-    execCommand(arrayArg);
-
-    if(saveStdInFileDescriptor >= 0) {
-        dup2(saveStdInFileDescriptor, stdin);
-        close(newInFileDescriptor);
-    }
-    if(saveStdOutFileDescriptor >= 0) {
-        dup2(saveStdOutFileDescriptor, stdout);
-        close(newOutFileDescriptor);
-    }
-
-    //TODO: close di saveStdInFileDescriptor e saveStdOutFileDescriptor??
-
-
+    printf("COMMAND");
+    printf("COMMAND: %s: ", arrayArg[0]);
+    executable = arrayArg;
+    printf("COMMAND: %s: ", executable[0]);
 
     free(str);
-    free(arrayArg);//VALGRIND
+    //free(arrayArg);//VALGRIND
     return 1;
+}
+
+int pipeCommand(char **command1, char **command2) {
+
+    pid_t forkRet = fork();
+
+    if(forkRet == 0) {
+        //EXEC coomand1
+        int fd[2];
+        if (pipe(fd) != 0) {
+            printf("Pipe fallita\n");
+            return 0;
+        }
+
+        pid_t childPid = fork(); 
+
+        if (childPid == -1) {
+            printf("Fork 2 fallita\n");
+            return 0;
+        }
+        else if (childPid == 0) {
+            dup2(fd[1], 1);
+            close(fd[0]);
+            close(fd[1]);
+            execvp(command1[0], command1);
+            printf("Esecuzione di %s fallita", command1[0]);
+            return 0;
+        }
+        else {
+            dup2(fd[0], 0);
+            close(fd[0]);
+            close(fd[1]);
+            execvp(command2[0], command2);
+            printf("Esecuzione di %s fallita", command2[0]);
+            return 0;
+        }
+
+        //exit(EXIT_SUCCESS);
+    }
+    else if(forkRet < 0){
+        perror("Fork 1 fallita");
+        return 0;
+    }
+
+    wait(NULL);
+    return 1;
+}
+
+int execCommands(char **executables[], int size, int stdin, int stdout) {
+
+        printf("EXECUTING:\n");
+        printf("EXECUTING: %s\n", executables[0][0]);
+
+    int fd[2];
+    if (pipe(fd) != 0) {
+        printf("Pipe fallita\n");
+        return 0;
+    }
+
+    pid_t forkRet = fork();
+
+    if(forkRet == 0) {
+        printf("CHILD:\n");
+        printf("CHILD: %d\n", size);
+        dup2(stdin, 0);
+        if(size > 1) {
+            dup2(fd[1], 1);
+        }
+        else{
+            dup2(stdout, 1);
+        }
+        close(fd[0]);
+        close(fd[1]);
+
+        execvp(executables[0][0], executables[0]);
+    }
+    else if(forkRet < 0){
+        perror("Fork 1 fallita");
+        return 0;
+    }
+
+    wait(NULL);
+    for(int i = 0; i < size; ++i) {
+        executables[i] = executables[i+1];
+    }
+
+    if(size > 0) {
+        return execCommands(executables, size-1, fd[0], stdout);
+    }
+    else {
+        return 1;
+    }
+
 }
 
 int parseLine(const char *linea) {
@@ -194,19 +226,37 @@ int parseLine(const char *linea) {
 
     str = malloc(sizeof(char) * (strlen(linea) + 1));
     strcpy(str, linea);
-    for(; ; str = NULL) {
+
+
+    char **executable = NULL;
+    char *stdinRedirect = NULL;
+    char *stdoutRedirect = NULL;
+
+    int size = countToken(linea, DELIMITER_PIPE);//TODO: count
+    char **executables[size];
+
+    int i;
+    for(i = 0; ; str = NULL, ++i) {
         token = __strtok_r(str, DELIMITER_PIPE, &saveptr);
         if (token == NULL) {
             break;
         }
-        isValid &= parseCommand(token);
+        isValid &= parseCommand(token, executable, stdinRedirect, stdoutRedirect);
+        executables[i] = executable;
+        printf("SAVING: %s\n", executable[0]);
+
     }
+
+
+    execCommands(executables, size, 0, 1);
+
+    /*for(int i = 0; i < size; ++i) {
+        free(executables[i]);
+    }*/
 
     free(str);
     return isValid;
 }
-
-
 
 int main(int argc, char *argv[]) {
 
@@ -225,4 +275,3 @@ int main(int argc, char *argv[]) {
 
     return EXIT_SUCCESS;
 }
-
