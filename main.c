@@ -22,6 +22,12 @@
 #define PREFIX_REDIRINPUT "<"
 #define PREFIX_REDIROUTPUT ">"
 
+struct executableCommand 
+{
+    char **command;
+    char *stdinRedirect;
+    char *stdoutRedirect;
+};
 
 char *readLine(){
     return readline("uBash>");
@@ -49,21 +55,29 @@ int countToken(const char *intputStr, char *delimiter) {
 
     str = malloc(sizeof(char) * (strlen(intputStr) + 1));
     strcpy(str, intputStr);
+
     while (__strtok_r(str, delimiter, &saveptr) != NULL) {
         count++;
+        if(str != NULL) {
+            free(str);
+        }
         str = NULL;
     }
 
-    free(str);
+    //free(str);
     return count;
 }
 
-int parseCommand(const char *comando, char *executable[], char *stdinRedirect, char *stdoutRedirect) {
+struct executableCommand parseCommand(const char *comando) {
     char *str, *token, *saveptr;
     int tokenNum = countToken(comando, DELIMITER_COMMAND);
 
-    //char **arrayArg = malloc((sizeof(char*) * tokenNum) + 1);
-    char *arrayArg[tokenNum+1];
+    struct executableCommand *commandStructNULL = NULL;//TODO: REMOVE
+    struct executableCommand commandStruct;
+
+    commandStruct.command = malloc((sizeof(char*) * (tokenNum + 1)));
+    char **executable = commandStruct.command;
+
     int i;
 
     str = malloc(sizeof(char) * (strlen(comando) + 1));
@@ -73,167 +87,122 @@ int parseCommand(const char *comando, char *executable[], char *stdinRedirect, c
         if (token == NULL) {
             break;
         }
-        printf("TOKEN: %s\n", token);
-
         if(i > 0) {
-             printf("TOKEN2");
             if(startsWith(token, PREFIX_ENVVAR)){//Variabili d'ambiente
                 removeFirstChar(token);
                 token = getenv(token);
-                strcpy(arrayArg[i], token);
+                
+                executable[i] = malloc(sizeof(char) * (strlen(token) + 1));
+                strcpy(executable[i], token);
                 //arrayArg[i] = token;
             } 
             else if(startsWith(token, PREFIX_REDIRINPUT)){
                 removeFirstChar(token);
-                if(stdinRedirect != NULL) {
-                    stdinRedirect = token;
+                if(commandStruct.stdinRedirect != NULL) {
+                    commandStruct.stdinRedirect = malloc(sizeof(char) * (strlen(token) + 1));
+                    strcpy(commandStruct.stdinRedirect, token);
+                    //commandStruct.stdinRedirect = token;
                 }
                 else {
-                    return 0;
+                    return *commandStructNULL;
                 }
             }
             else if(startsWith(token, PREFIX_REDIROUTPUT)){
                 removeFirstChar(token);
-                if(stdoutRedirect != NULL) {
-                    stdoutRedirect = token;
+                if(commandStruct.stdoutRedirect != NULL) {
+                    commandStruct.stdoutRedirect = malloc(sizeof(char) * (strlen(token) + 1));
+                    strcpy(commandStruct.stdoutRedirect, token);
+                    //commandStruct.stdoutRedirect = token;
                 }
                 else {
-                    return 0;
+                    return *commandStructNULL;
                 }
             }
             else{
-                printf("TOKEN3: %s: ", token);
-                strcpy(arrayArg[i], token);
-                printf("TOKEN3: %s: ", arrayArg[i]);
-                //arrayArg[i] = token;
+                executable[i] = malloc(sizeof(char) * (strlen(token) + 1));
+                strcpy(executable[i], token);
             }
         }
         else {
-            printf("COMMAND1: ");
-            strcpy(arrayArg[i], token);
-            //arrayArg[i] = token;
-            printf("COMMAND1: %s: ", arrayArg[i]);
+            executable[i] = malloc(sizeof(char) * (strlen(token) + 1));
+            strcpy(executable[i], token);
+        }
+
+        if(str != NULL) {
+            free(str);
         }
     }
-    arrayArg[tokenNum] = NULL;
+    executable[tokenNum] = (char*)NULL;
 
-    printf("COMMAND");
-    printf("COMMAND: %s: ", arrayArg[0]);
-    executable = arrayArg;
-    printf("COMMAND: %s: ", executable[0]);
-
-    free(str);
-    //free(arrayArg);//VALGRIND
-    return 1;
+    return commandStruct;
 }
 
-int pipeCommand(char **command1, char **command2) {
 
-    pid_t forkRet = fork();
+int execCommands(struct executableCommand *executables, int size, int stdIN, int stdOUT) {
+    int i;
 
-    if(forkRet == 0) {
-        //EXEC coomand1
-        int fd[2];
+    int redirIN = stdIN;
+    int fd[2];
+
+    for(i = 0; i < size; ++i) {
+        
         if (pipe(fd) != 0) {
             printf("Pipe fallita\n");
             return 0;
         }
+        
+        pid_t forkRet = fork();
+        if(forkRet == 0) {//CHILD
 
-        pid_t childPid = fork(); 
-
-        if (childPid == -1) {
-            printf("Fork 2 fallita\n");
-            return 0;
-        }
-        else if (childPid == 0) {
-            dup2(fd[1], 1);
+            dup2(redirIN, 0);
+            if(redirIN != 0) {
+                close(redirIN);
+            }
+            if(i < (size-1)) {//IF NOT LAST
+                dup2(fd[1], 1);
+            }
+            else{
+                dup2(stdOUT, 1);
+            }
             close(fd[0]);
             close(fd[1]);
-            execvp(command1[0], command1);
-            printf("Esecuzione di %s fallita", command1[0]);
-            return 0;
+            execvp(executables[i].command[0], executables[i].command);
         }
-        else {
-            dup2(fd[0], 0);
-            close(fd[0]);
-            close(fd[1]);
-            execvp(command2[0], command2);
-            printf("Esecuzione di %s fallita", command2[0]);
+        else if(forkRet < 0){
+            perror("Fork fallita");
             return 0;
         }
 
-        //exit(EXIT_SUCCESS);
-    }
-    else if(forkRet < 0){
-        perror("Fork 1 fallita");
-        return 0;
-    }
-
-    wait(NULL);
-    return 1;
-}
-
-int execCommands(char **executables[], int size, int stdin, int stdout) {
-
-        printf("EXECUTING:\n");
-        printf("EXECUTING: %s\n", executables[0][0]);
-
-    int fd[2];
-    if (pipe(fd) != 0) {
-        printf("Pipe fallita\n");
-        return 0;
-    }
-
-    pid_t forkRet = fork();
-
-    if(forkRet == 0) {
-        printf("CHILD:\n");
-        printf("CHILD: %d\n", size);
-        dup2(stdin, 0);
-        if(size > 1) {
-            dup2(fd[1], 1);
-        }
-        else{
-            dup2(stdout, 1);
-        }
-        close(fd[0]);
+        wait(NULL);
         close(fd[1]);
-
-        execvp(executables[0][0], executables[0]);
-    }
-    else if(forkRet < 0){
-        perror("Fork 1 fallita");
-        return 0;
+        if(redirIN != 0) {
+            close(redirIN);
+        }
+        redirIN = fd[0];
     }
 
-    wait(NULL);
-    for(int i = 0; i < size; ++i) {
-        executables[i] = executables[i+1];
+    if(redirIN != 0) {
+        close(redirIN);
     }
-
-    if(size > 0) {
-        return execCommands(executables, size-1, fd[0], stdout);
+    if(stdOUT != 1){
+        close(stdOUT);
     }
-    else {
-        return 1;
-    }
-
+    return 1;
 }
 
 int parseLine(const char *linea) {
     char *str, *token, *saveptr;
     int isValid = 1;
 
-    str = malloc(sizeof(char) * (strlen(linea) + 1));
+    str = (char*)malloc(sizeof(char) * (strlen(linea) + 1));
     strcpy(str, linea);
 
 
-    char **executable = NULL;
-    char *stdinRedirect = NULL;
-    char *stdoutRedirect = NULL;
+    int size = countToken(linea, DELIMITER_PIPE);
+    struct executableCommand executables[size];
 
-    int size = countToken(linea, DELIMITER_PIPE);//TODO: count
-    char **executables[size];
+    int stdIN = 0;
+    int stdOUT = 1;
 
     int i;
     for(i = 0; ; str = NULL, ++i) {
@@ -241,18 +210,59 @@ int parseLine(const char *linea) {
         if (token == NULL) {
             break;
         }
-        isValid &= parseCommand(token, executable, stdinRedirect, stdoutRedirect);
-        executables[i] = executable;
-        printf("SAVING: %s\n", executable[0]);
 
+        struct executableCommand commandStruct = parseCommand(token);
+
+        printf("REDIR: %s %s", commandStruct.stdinRedirect, commandStruct.stdoutRedirect);
+        if(commandStruct.stdinRedirect != NULL) {
+            if(i == 0) {
+                stdIN = open(commandStruct.stdinRedirect, O_RDONLY);
+            }
+            else{
+                printf("Redirezione dell'input in %d-esima posizione.", i);
+                return 0;
+            }
+        }
+
+        if(commandStruct.stdoutRedirect != NULL) {
+            if(i == (size-1)){
+                stdOUT = open(commandStruct.stdinRedirect, O_WRONLY | O_CREAT, S_IWUSR);
+            }
+            else {
+                printf("Redirezione dell'output in %d-esima posizione.", i);
+                return 0;
+            }
+        }
+
+        executables[i] = commandStruct;
+        if(str != NULL){
+            free(str);
+        }
     }
 
-
-    execCommands(executables, size, 0, 1);
-
-    /*for(int i = 0; i < size; ++i) {
-        free(executables[i]);
+    /*for(i =0; i < size; ++i) {
+        printf("ARGS: ");
+        int j = 0;
+        char* command;
+        while((command = executables[i].command[j++]) != NULL){
+            printf("%s ", command);
+        }
+        printf("NULL \n");
     }*/
+
+
+    execCommands(executables, size, stdIN, stdOUT);
+
+    int j;
+    for(i = 0; i < size; ++i) {
+        j = 0;
+        char* command;
+        while((command = executables[i].command[j++]) != NULL){
+            free(command);
+        }
+        free(executables[i].command);
+    }
+    //free(executables);
 
     free(str);
     return isValid;
@@ -268,10 +278,13 @@ int main(int argc, char *argv[]) {
 
         printf("ISVALID: %d\n", isValid);
 
+        free(cmdLine);
         cmdLine = readLine();
     }
 
-    printf("Done!\n");
+    free(cmdLine);
+
+    printf("\nDone!\n");
 
     return EXIT_SUCCESS;
 }
