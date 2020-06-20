@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +24,8 @@
 #define PREFIX_REDIRINPUT "<"
 #define PREFIX_REDIROUTPUT ">"
 
+char *PATH;
+
 struct executableCommand 
 {
     char **command;
@@ -29,8 +33,14 @@ struct executableCommand
     char *stdoutRedirect;
 };
 
-char *readLine(){
-    return readline("uBash>");
+char *readLine(){ 
+    char rightString[strlen(PATH) + 2];
+    strcpy(rightString, "uBash:");
+    strcat(rightString, PATH);
+    strcat(rightString, ">");
+    
+
+    return readline(rightString);
 }
 
 int startsWith(const char *str, const char *pre)
@@ -51,42 +61,34 @@ void removeFirstChar(char *str){
 
 int countToken(const char *intputStr, char *delimiter) {
     int count = 0;
-    char *str, *saveptr;
 
-    str = malloc(sizeof(char) * (strlen(intputStr) + 1));
+    char str[strlen(intputStr) + 1];
     strcpy(str, intputStr);
 
-    while (__strtok_r(str, delimiter, &saveptr) != NULL) {
+    char *token = strtok(str, delimiter);
+    while (token != NULL) {
         count++;
-        if(str != NULL) {
-            free(str);
-        }
-        str = NULL;
+        token = strtok(NULL, delimiter);
     }
-
-    //free(str);
     return count;
 }
 
-struct executableCommand parseCommand(const char *comando) {
-    char *str, *token, *saveptr;
+int parseCommand(const char *comando, struct executableCommand *commandStruct) {
+    char *saveptr;
     int tokenNum = countToken(comando, DELIMITER_COMMAND);
 
-    struct executableCommand *commandStructNULL = NULL;//TODO: REMOVE
-    struct executableCommand commandStruct;
+    commandStruct->stdinRedirect = NULL;
+    commandStruct->stdoutRedirect = NULL;
 
-    commandStruct.command = malloc((sizeof(char*) * (tokenNum + 1)));
-    char **executable = commandStruct.command;
+    commandStruct->command = malloc(sizeof(char*) * (tokenNum + 1));
+    char **executable = commandStruct->command;
 
-    int i;
-
-    str = malloc(sizeof(char) * (strlen(comando) + 1));
+    char str[strlen(comando) + 1];// = malloc(sizeof(char) * (strlen(comando) + 1));
     strcpy(str, comando);
-    for(i = 0; ; str = NULL, ++i) {
-        token = __strtok_r(str, DELIMITER_COMMAND, &saveptr);
-        if (token == NULL) {
-            break;
-        }
+
+    int i = 0;
+    char *token = __strtok_r(str, DELIMITER_COMMAND, &saveptr);
+    while(token != NULL) {
         if(i > 0) {
             if(startsWith(token, PREFIX_ENVVAR)){//Variabili d'ambiente
                 removeFirstChar(token);
@@ -94,28 +96,39 @@ struct executableCommand parseCommand(const char *comando) {
                 
                 executable[i] = malloc(sizeof(char) * (strlen(token) + 1));
                 strcpy(executable[i], token);
-                //arrayArg[i] = token;
             } 
             else if(startsWith(token, PREFIX_REDIRINPUT)){
                 removeFirstChar(token);
-                if(commandStruct.stdinRedirect != NULL) {
-                    commandStruct.stdinRedirect = malloc(sizeof(char) * (strlen(token) + 1));
-                    strcpy(commandStruct.stdinRedirect, token);
-                    //commandStruct.stdinRedirect = token;
+                if(commandStruct->stdinRedirect == NULL) {
+                    if(strlen(token) > 0) {
+                        commandStruct->stdinRedirect = malloc(sizeof(char) * (strlen(token) + 1));
+                        strcpy(commandStruct->stdinRedirect, token);
+                    }
+                    else {
+                        printf("Redirezione stdin non valida\n");
+                        return 0;
+                    }
                 }
                 else {
-                    return *commandStructNULL;
+                    printf("E' presente più una redirezione di stdin in %s\n", executable[0]);
+                    return 0;
                 }
             }
             else if(startsWith(token, PREFIX_REDIROUTPUT)){
                 removeFirstChar(token);
-                if(commandStruct.stdoutRedirect != NULL) {
-                    commandStruct.stdoutRedirect = malloc(sizeof(char) * (strlen(token) + 1));
-                    strcpy(commandStruct.stdoutRedirect, token);
-                    //commandStruct.stdoutRedirect = token;
+                if(commandStruct->stdoutRedirect == NULL) {
+                    if(strlen(token) > 0) {
+                        commandStruct->stdoutRedirect = malloc(sizeof(char) * (strlen(token) + 1));
+                        strcpy(commandStruct->stdoutRedirect, token);
+                    }
+                    else {
+                        printf("Redirezione stdout non valida\n");
+                        return 0;
+                    }
                 }
                 else {
-                    return *commandStructNULL;
+                    printf("E' presente più una redirezione di stdout in %s\n", executable[0]);
+                    return 0;
                 }
             }
             else{
@@ -123,18 +136,22 @@ struct executableCommand parseCommand(const char *comando) {
                 strcpy(executable[i], token);
             }
         }
-        else {
+        else {//Comnmand name
             executable[i] = malloc(sizeof(char) * (strlen(token) + 1));
             strcpy(executable[i], token);
         }
 
-        if(str != NULL) {
-            free(str);
-        }
+        token = __strtok_r(NULL, DELIMITER_COMMAND, &saveptr);
+        i++;
     }
+    if(i == 0) {//IF Command empty
+        printf("Comando vuoto");
+        return 0;
+    }
+
     executable[tokenNum] = (char*)NULL;
 
-    return commandStruct;
+    return 1;
 }
 
 
@@ -153,27 +170,37 @@ int execCommands(struct executableCommand *executables, int size, int stdIN, int
         
         pid_t forkRet = fork();
         if(forkRet == 0) {//CHILD
-
-            dup2(redirIN, 0);
+            dup2(redirIN, STDIN_FILENO);
             if(redirIN != 0) {
                 close(redirIN);
             }
+            
             if(i < (size-1)) {//IF NOT LAST
-                dup2(fd[1], 1);
+                dup2(fd[1], STDOUT_FILENO);
             }
             else{
-                dup2(stdOUT, 1);
+                dup2(stdOUT, STDOUT_FILENO);
             }
             close(fd[0]);
             close(fd[1]);
-            execvp(executables[i].command[0], executables[i].command);
+
+            char *pathArray[2] = {PATH, NULL};
+
+            execvpe(executables[i].command[0], executables[i].command, pathArray);
+            exit(EXIT_FAILURE);
         }
         else if(forkRet < 0){
             perror("Fork fallita");
             return 0;
         }
 
-        wait(NULL);
+        int processResult;
+        wait(&processResult);
+        if(WIFEXITED(processResult) == 0){
+            printf("Esecuzione di %s fallita. Codice errore %d\n", executables[i].command[0], WEXITSTATUS(processResult));
+        }
+        
+
         close(fd[1]);
         if(redirIN != 0) {
             close(redirIN);
@@ -190,99 +217,148 @@ int execCommands(struct executableCommand *executables, int size, int stdIN, int
     return 1;
 }
 
-int parseLine(const char *linea) {
-    char *str, *token, *saveptr;
+void execCD(const char *pathString){
+    free(PATH);
+    PATH = malloc(sizeof(char) * (strlen(pathString)+1));
+    strcpy(PATH, pathString);
+}
+
+void parseLine(const char *linea) {
+    char *saveptr;
     int isValid = 1;
-
-    str = (char*)malloc(sizeof(char) * (strlen(linea) + 1));
-    strcpy(str, linea);
-
 
     int size = countToken(linea, DELIMITER_PIPE);
     struct executableCommand executables[size];
 
-    int stdIN = 0;
-    int stdOUT = 1;
+    int stdIN = STDIN_FILENO;
+    int stdOUT = STDOUT_FILENO;
 
-    int i;
-    for(i = 0; ; str = NULL, ++i) {
-        token = __strtok_r(str, DELIMITER_PIPE, &saveptr);
-        if (token == NULL) {
+    char str[strlen(linea) + 1];
+    strcpy(str, linea);
+
+    int i = 0;
+    char *token = __strtok_r(str, DELIMITER_PIPE, &saveptr);
+    while(token != NULL) {
+
+        struct executableCommand commandStruct;
+        int result = parseCommand(token, &commandStruct);
+
+        if(result == 0) {
+            printf("Comando non valido\n");
+            isValid = 0;
             break;
         }
 
-        struct executableCommand commandStruct = parseCommand(token);
+        if(strcmp(commandStruct.command[0], "cd") == 0) {
+            executables[i] = commandStruct;//TO be free at the end
+            if(size == 1){
+                if(commandStruct.stdinRedirect == NULL && commandStruct.stdoutRedirect == NULL){
+                    if(countToken(token, DELIMITER_COMMAND) == 2){
+                        execCD(commandStruct.command[1]);
+                        isValid = 0;
+                        break;
+                    }
+                    else{
+                        printf("Il comando cd ammette esattamente un argomento\n");
+                        isValid = 0;
+                        break;
+                    }
 
-        printf("REDIR: %s %s", commandStruct.stdinRedirect, commandStruct.stdoutRedirect);
-        if(commandStruct.stdinRedirect != NULL) {
-            if(i == 0) {
-                stdIN = open(commandStruct.stdinRedirect, O_RDONLY);
+                }
+                else{
+                    printf("Il comando cd non ammette redirezioni\n");
+                    isValid = 0;
+                    break;
+                }
             }
             else{
-                printf("Redirezione dell'input in %d-esima posizione.", i);
-                return 0;
+                printf("Il comando cd non ammette pipe\n");
+                isValid = 0;
+                break;
+            }
+        }
+
+        if(commandStruct.stdinRedirect != NULL) {
+            if(i == 0) {
+
+                char *stringPath = malloc(strlen(PATH) + strlen(commandStruct.stdinRedirect) + 2);
+                strcpy(stringPath, PATH);
+                strcat(stringPath, "/");
+                strcat(stringPath, commandStruct.stdinRedirect);
+
+                stdIN = open(stringPath, O_RDONLY);
+
+                free(stringPath);
+            }
+            else{
+                printf("Redirezione dell'input in %d-esima posizione\n", i);
+                isValid = 0;
+                break;
             }
         }
 
         if(commandStruct.stdoutRedirect != NULL) {
             if(i == (size-1)){
-                stdOUT = open(commandStruct.stdinRedirect, O_WRONLY | O_CREAT, S_IWUSR);
+                stdOUT = open(commandStruct.stdoutRedirect, O_WRONLY | O_CREAT | O_TRUNC, 0644);
             }
             else {
-                printf("Redirezione dell'output in %d-esima posizione.", i);
-                return 0;
+                printf("Redirezione dell'output in %d-esima posizione\n", i);
+                isValid = 0;
+                break;
             }
         }
 
         executables[i] = commandStruct;
-        if(str != NULL){
-            free(str);
-        }
+        
+        token = __strtok_r(NULL, DELIMITER_PIPE, &saveptr);
+        i++;
     }
 
-    /*for(i =0; i < size; ++i) {
-        printf("ARGS: ");
-        int j = 0;
-        char* command;
-        while((command = executables[i].command[j++]) != NULL){
-            printf("%s ", command);
-        }
-        printf("NULL \n");
-    }*/
+    if(isValid == 1) {
+        execCommands(executables, size, stdIN, stdOUT);
+    }
 
-
-    execCommands(executables, size, stdIN, stdOUT);
 
     int j;
     for(i = 0; i < size; ++i) {
         j = 0;
         char* command;
         while((command = executables[i].command[j++]) != NULL){
+            printf("Free cmd string\n");
             free(command);
         }
-        free(executables[i].command);
+        if(executables[i].command != NULL) {
+            printf("Free command\n");
+            free(executables[i].command);
+        }
+        if(executables[i].stdinRedirect != NULL) {
+            printf("Free in\n");
+            free(executables[i].stdinRedirect);
+        }
+        if(executables[i].stdoutRedirect != NULL) {
+            printf("Free out\n");
+            free(executables[i].stdoutRedirect);
+        }
     }
-    //free(executables);
-
-    free(str);
-    return isValid;
 }
 
 int main(int argc, char *argv[]) {
+    char *currentPath = getenv("PWD");
+    PATH = malloc(sizeof(char) * (strlen(currentPath)+1));
+    strcpy(PATH, currentPath);
 
     char *cmdLine = readLine();
     while(cmdLine != NULL) {
         add_history(cmdLine);
 
-        int isValid = parseLine(cmdLine);
-
-        printf("ISVALID: %d\n", isValid);
+        parseLine(cmdLine);
 
         free(cmdLine);
         cmdLine = readLine();
     }
 
     free(cmdLine);
+    free(PATH);
 
     printf("\nDone!\n");
 
