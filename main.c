@@ -145,7 +145,7 @@ int parseCommand(const char *comando, struct executableCommand *commandStruct) {
         i++;
     }
     if(i == 0) {//IF Command empty
-        printf("Comando vuoto");
+        printf("Comando vuoto\n");
         return 0;
     }
 
@@ -237,11 +237,15 @@ void parseLine(const char *linea) {
     strcpy(str, linea);
 
     int i = 0;
+    int k = 0;//number of commands to free at the end
     char *token = __strtok_r(str, DELIMITER_PIPE, &saveptr);
     while(token != NULL) {
 
         struct executableCommand commandStruct;
         int result = parseCommand(token, &commandStruct);
+
+        executables[i] = commandStruct;
+        k++;
 
         if(result == 0) {
             printf("Comando non valido\n");
@@ -250,7 +254,7 @@ void parseLine(const char *linea) {
         }
 
         if(strcmp(commandStruct.command[0], "cd") == 0) {
-            executables[i] = commandStruct;//TO be free at the end
+            //executables[i] = commandStruct;//TO be free at the end
             if(size == 1){
                 if(commandStruct.stdinRedirect == NULL && commandStruct.stdoutRedirect == NULL){
                     if(countToken(token, DELIMITER_COMMAND) == 2){
@@ -308,7 +312,7 @@ void parseLine(const char *linea) {
             }
         }
 
-        executables[i] = commandStruct;
+        //executables[i] = commandStruct;
         
         token = __strtok_r(NULL, DELIMITER_PIPE, &saveptr);
         i++;
@@ -317,26 +321,21 @@ void parseLine(const char *linea) {
     if(isValid == 1) {
         execCommands(executables, size, stdIN, stdOUT);
     }
-
-
+    
     int j;
-    for(i = 0; i < size; ++i) {
+    for(i = 0; i < k; ++i) {
         j = 0;
         char* command;
-        while((command = executables[i].command[j++]) != NULL){
-            printf("Free cmd string\n");
-            free(command);
-        }
         if(executables[i].command != NULL) {
-            printf("Free command\n");
+            while((command = executables[i].command[j++]) != NULL){
+                free(command);
+            }
             free(executables[i].command);
         }
         if(executables[i].stdinRedirect != NULL) {
-            printf("Free in\n");
             free(executables[i].stdinRedirect);
         }
         if(executables[i].stdoutRedirect != NULL) {
-            printf("Free out\n");
             free(executables[i].stdoutRedirect);
         }
     }
@@ -347,17 +346,17 @@ int main(int argc, char *argv[]) {
     PATH = malloc(sizeof(char) * (strlen(currentPath)+1));
     strcpy(PATH, currentPath);
 
-    char *cmdLine = readLine();
-    while(cmdLine != NULL) {
+    char *cmdLine;// = readLine();
+    while((cmdLine = readLine()) != NULL) {
         add_history(cmdLine);
 
         parseLine(cmdLine);
 
         free(cmdLine);
-        cmdLine = readLine();
+        //cmdLine = readLine();
     }
 
-    free(cmdLine);
+    //free(cmdLine);
     free(PATH);
 
     printf("\nDone!\n");
